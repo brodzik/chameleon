@@ -12,7 +12,7 @@ from tqdm.auto import tqdm
 
 
 class Chameleon:
-    def __init__(self, k=10, remove_edges_coef=0.5, min_ri=0, min_rc=0, min_ri_rc=0.5):
+    def __init__(self, k=10, remove_edges_coef=0.5, min_ri=0, min_rc=0, min_ri_rc=0.5, debug_draw_knng=False, debug_draw_partition=False, debug_print_merges=False):
         self.k_ = k
         self.remove_edges_coef_ = remove_edges_coef
         self.min_ri_ = min_ri
@@ -25,35 +25,43 @@ class Chameleon:
         self.cache_ = None
         self.cluster_history_ = None
 
-        self.debug_draw_knng_ = False
-        self.debug_draw_partition_ = False
+        self.debug_draw_knng_ = debug_draw_knng
+        self.debug_draw_partition_ = debug_draw_partition
+        self.x_ = None
+        self.debug_print_merges_ = debug_print_merges
 
-    def fit(self, X):
-        self.distance_matrix_ = euclidean_distances(X, X)
-        self._build_knn_graph(range(len(X)))
+    def fit(self, x):
+        self.distance_matrix_ = euclidean_distances(x, x)
+        self._build_knn_graph(range(len(x)))
 
         if self.debug_draw_knng_:
             plt.figure(figsize=(5, 5))
-            nx.draw(self.knng_, pos=X, node_size=1, node_color="black")
+            nx.draw(self.knng_, pos=x, node_size=1, node_color="black")
             plt.show()
 
-        self._partition_knn_graph(len(X))
+        if self.debug_draw_partition_:
+            self.x_ = x
+
+        self._partition_knn_graph(len(x))
         self._merge_clusters()
 
         return self
 
+    def fit_predict(self, x):
+        return self.fit(x).get_clusters()
+
     def get_clusters(self, idx=-1):
         return self._simplify_clusters(self.cluster_history_[idx])
 
-    def _build_knn_graph(self, X):
+    def _build_knn_graph(self, x):
         self.knng_ = nx.Graph()
 
-        for i in X:
+        for i in x:
             self.knng_.add_node(i)
 
-        for a in X:
+        for a in x:
             for b in np.argsort(self.distance_matrix_[a])[1:self.k_ + 1]:
-                self.knng_.add_edge(a, b, weight=self.distance_matrix_[a][b], similarity=1/self.distance_matrix_[a][b])
+                self.knng_.add_edge(a, b, weight=self.distance_matrix_[a][b], similarity=1/(self.distance_matrix_[a][b] + 1e-6))
 
     def _partition_knn_graph(self, N):
         self.clusters_ = np.zeros(N, dtype=np.uint64)
@@ -69,7 +77,7 @@ class Chameleon:
 
             if self.debug_draw_partition_:
                 plt.figure(figsize=(5, 5))
-                nx.draw(knng, pos=X, node_size=1, node_color="black")
+                nx.draw(knng, pos=self.x_, node_size=1, node_color="black")
                 plt.show()
 
             N_remove = int(self.remove_edges_coef_ * len(knng.edges()))
@@ -211,6 +219,10 @@ class Chameleon:
                     self.clusters_[np.where(self.clusters_ == j)] = i
                     merged = True
                     self._delete_cache(i, j)
+
+                    if self.debug_print_merges_:
+                        print(i, j, ri, rc, ri_rc)
+
                     break
 
             if merged:
@@ -225,24 +237,3 @@ class Chameleon:
             c2[np.where(c == x)] = i
 
         return c2
-
-
-"""
-if __name__ == "__main__":
-    df = pd.DataFrame(arff.loadarff("../data/artificial/3-spiral.arff")[0])
-    df["CLASS"] = df["class"]
-    df["CLASS"] = df["CLASS"].map({x: i for i, x in enumerate(df["CLASS"].unique())})
-    X = df[["x", "y"]].to_numpy()
-
-    model = Chameleon(k=10).fit(X)
-
-    c = model.get_clusters(-1)
-
-    print(len(np.unique(c)))
-
-    plt.figure(figsize=(5, 5))
-    plt.scatter(X[:, 0], X[:, 1], c=c, s=10)
-    plt.show()
-
-    print(rand_score(df["CLASS"].to_numpy(), c), adjusted_rand_score(df["CLASS"].to_numpy(), c))
-"""
